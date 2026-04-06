@@ -1,0 +1,23 @@
+from gpiozero import DigitalInputDevice  # 디지털 입력 장치(센서 등) 제어를 위한 라이브러리
+from gpiozero import OutputDevice        # 디지털 출력 장치(버저 등) 제어를 위한 라이브러리
+import time                              # 시간 지연(sleep)을 사용하기 위한 라이브러리
+
+# 하드웨어 연결 설정 과정
+bz  = OutputDevice(18)                 # GPIO 18번 핀에 연결된 버저 설정
+gas = DigitalInputDevice(17)           # GPIO 17번 핀에 연결된 가스 센서 설정
+
+try:                                   
+    while True:                        # 무한 반복문 시작
+        if gas.value == 0:             # 가스 센서의 값이 0일 때 (보통 가스가 감지되면 0 출력)
+            print("가스감지됨")          # 터미널에 메시지 출력
+            bz.on()                    # 버저를 켬 (소리 발생)
+        else:                          # 가스 센서의 값이 1일 때 (정상 상태)
+            print("정상")                # 터미널에 메시지 출력
+            bz.off()                   # 버저를 끔
+
+        time.sleep(0.2)                # 0.2초마다 센서 상태를 확인 (CPU 과부하 방지)
+
+except KeyboardInterrupt:              # 사용자가 Ctrl+C를 눌러 프로그램을 종료할 때
+    pass                               # 별도의 오류 메시지 없이 루프를 빠져나감
+
+bz.off()                               # 프로그램이 완전히 종료되기 전에 버저를 확실히 끔
