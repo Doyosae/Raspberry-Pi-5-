@@ -1,0 +1,60 @@
+import paho.mqtt.client as mqtt  # MQTT 통신을 지원하는 라이브러리 (Client 객체 생성 등)
+import time                      # 시간 지연(sleep) 기능을 사용하기 위한 모듈
+from gpiozero import LED         # 라즈베리 파이 GPIO 핀을 쉽게 제어하기 위한 객체 지향 라이브러리
+import threading                 # 하나의 프로세스 내에서 여러 실행 흐름(Thread)을 만들기 위한 모듈
+
+# [1. 하드웨어 설정] GPIO 핀 번호에 맞춰 LED 객체 생성
+greenLed = LED(16)  # 16번 핀: 초록색 LED
+blueLed = LED(20)   # 20번 핀: 파란색 LED
+redLed = LED(21)    # 21번 핀: 빨간색 LED
+
+# [2. 콜백 함수 정의] 브로커로부터 메시지가 도착했을 때 자동으로 실행될 로직
+def on_message(client, userdata, msg):
+    # msg.topic: 수신된 토픽명, msg.payload: 전달된 실제 데이터(바이트 형태)
+    print(f"Topic: {msg.topic} / Raw Data: {msg.payload}")
+    
+    # 바이트(byte) 데이터를 문자열(string)로 변환 (예: b'green_on' -> 'green_on')
+    message = msg.payload.decode()
+    print(f"Decoded Message: {message}")
+
+    # 수신된 문자열 명령어에 따른 LED 제어 (조건문/분기 처리)
+    if message == "green_on":
+        greenLed.on()
+    elif message == "green_off":
+        greenLed.off()
+    elif message == "blue_on":
+        blueLed.on()
+    elif message == "blue_off":
+        blueLed.off()
+    elif message == "red_on":
+        redLed.on()
+    elif message == "red_off":
+        redLed.off()
+
+# [3. MQTT 클라이언트 초기화 및 설정]
+client = mqtt.Client()           # MQTT 클라이언트 인스턴스 생성
+client.on_message = on_message  # 수신 이벤트 발생 시 실행할 함수(on_message) 등록
+
+# [4. 브로커 연결 및 구독 신청]
+broker_address = "192.168.137.230"  # 메시지 중계 서버(브로커)의 IP 주소
+client.connect(broker_address)      # 설정된 주소의 브로커로 접속 시도
+client.subscribe("led", 1)          # "led"라는 이름의 토픽을 구독 (QoS 1: 최소 1회 전송 보장)
+
+# [5. 멀티스레딩 구현: 데이터 발행(Publish) 전용 함수]
+count = 0  # 전송할 데이터 초기값
+def send_thread():
+    global count
+    while True:  # 메인 루프와 별개로 무한 반복 실행
+        count = count + 1
+        # "hello" 토픽으로 숫자를 문자열로 변환하여 브로커에 전송
+        client.publish("hello", str(count))
+        time.sleep(1.0)  # 1초 간격으로 반복 (이동안에도 메시지 수신은 가능해야 함)
+
+# [6. 병렬 실행 및 메인 루프 진입]
+# 서브 스레드 생성: send_thread 함수를 별도의 실행 흐름으로 지정
+task = threading.Thread(target=send_thread)
+task.start()  # 서브 스레드 시작 (지금부터 발행과 구독이 동시에 처리됨)
+
+# 메인 스레드 실행: 메시지 수신을 위한 무한 대기 루프 (Blocking 모드)
+# loop_forever는 프로그램이 종료되지 않도록 붙잡아두며 메시지 도착을 감시함
+client.loop_forever()
