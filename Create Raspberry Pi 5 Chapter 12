@@ -1,0 +1,32 @@
+mportspeech_recognition assr # 음성인식라이브러리임포트
+importrequests # HTTP 요청을보내기위한라이브러리임포트
+importos # 운영체제명령어실행을위한라이브러리임포트
+importtime # 시간지연처리를위한라이브러리임포트
+API_KEY="Enter your API key here" # OpenWeatherMap API 키설정
+url=f"https://api.openweathermap.org/data/2.5/weather?q=Seoul&appid={API_KEY}&units=metric" # 서울날씨요청URL (단위: 섭씨)
+defspeak(option, msg): # 텍스트를음성으로출력하는함수정의
+os.system("espeak {}'{}'".format(option, msg)) # espeak 명령어로option 설정과함께msg를음성출력
+try:
+  whileTrue: # 키보드인터럽트(Ctrl+C)가발생할때까지무한반복
+r=sr.Recognizer() # 음성인식기객체생성
+withsr.Microphone() assource: # 기본마이크를입력소스로사용
+print("Say something!")   # 사용자에게말하도록안내메시지출력
+audio=r.listen(source)   # 마이크에서음성을녹음하여audio에저장
+try:
+      text=r.recognize_google(audio, language='ko-KR') # 녹음된음성을한국어로텍스트변환
+print("You said: "+text) # 인식된텍스트출력
+iftextin"날씨": # text가"날씨" 문자열안에포함되는지확인
+print("날씨음성을인식하였습니다.") # 날씨관련음성인식성공메시지출력
+response=requests.get(url)   # 날씨API에GET 요청을보내응답수신
+data=response.json()      # 응답데이터를JSON 형식으로파싱
+temp=data["main"]["temp"]   # JSON 데이터에서현재기온(섭씨) 추출
+humi=data["main"]["humidity"] # JSON 데이터에서현재습도(%) 추출
+msg='  기온은'+str(int(temp)) +'도습도는'+str(humi) +'퍼센트입니다' # 기온과습도를포함한안내문자열생성
+option='-s 180 -p 50 -a 200 -v ko+f5' # espeak 옵션설정(속도180, 음높이50, 음량200, 한국어여성음성)
+speak(option, msg) # 설정된옵션과메시지로음성출력함수호출
+exceptsr.UnknownValueError: # 음성은감지됐지만내용을인식하지못한경우
+print("Google Speech Recognition could not understand audio") # 인식실패메시지출력
+exceptsr.RequestError ase: # Google API 서버요청자체가실패한경우
+print("Could not request results from Google Speech Recognition service; {0}".format(e)) # 오류내용출력
+exceptKeyboardInterrupt: # Ctrl+C 입력시프로그램정상종료
+pass # 아무처리없이루프탈출
