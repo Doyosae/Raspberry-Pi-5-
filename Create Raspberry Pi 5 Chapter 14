@@ -1,0 +1,80 @@
+import cv2                    # 컴퓨터 비전 및 이미지 처리를 위한 OpenCV 라이브러리
+from gpiozero import Buzzer   # 라즈베리 파이 GPIO 핀으로 부저를 제어하기 위한 모듈
+import time                   # 시간 지연 처리를 위한 모듈
+
+# [1. 하드웨어 설정] 졸음 경고용 물리 부저 연결 (GPIO 16번 핀)
+buzzerPin = Buzzer(16)
+
+def main():
+    # [2. 카메라 인프라 구축] 시스템에 연결된 웹캠 장치 초기화
+    camera = cv2.VideoCapture(-1)  # -1은 연결된 기본 카메라를 자동으로 탐지하여 오픈
+    camera.set(3, 640)             # 프레임의 가로 해상도를 640픽셀로 설정
+    camera.set(4, 480)             # 프레임의 세로 해상도를 480픽셀로 설정
+
+    # [3. Haar Cascade 학습 모델 로드] OpenCV 내장 XML 파일 경로 지정
+    face_xml = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'  # 정면 안면 검출 모델
+    eye_xml = cv2.data.haarcascades + 'haarcascade_eye.xml'                  # 안구 검출 모델
+    
+    # XML 모델 데이터를 기반으로 픽셀 특징 분류기(CascadeClassifier) 생성
+    face_cascade = cv2.CascadeClassifier(face_xml)
+    eye_cascade = cv2.CascadeClassifier(eye_xml)
+
+    # 카메라 장치와 세션이 정상적으로 열려 있는 동안 무한 루프 수행
+    while camera.isOpened():
+        _, image = camera.read()  # 카메라로부터 실시간 영상의 프레임 한 장을 캡처
+        
+        # [4. 전처리 단계] 컬러 영상(BGR)을 연산 속도가 빠른 흑백 영상(Grayscale)으로 변환
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # [5. 안면 영역 일차 검출] 흑백 이미지에서 얼굴 좌표 탐색
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,         # 이미지 크기를 10%씩 점진적으로 축소하며 다중 스케일 탐색
+            minNeighbors=5,          # 오탐지를 줄이기 위해 최소 5회 이상 중복 검출된 영역만 확정
+            minSize=(100, 100),       # 탐지할 안면의 최소 크기를 100x100 픽셀로 제한
+            flags=cv2.CASCADE_SCALE_IMAGE
+        )
+        
+        print("faces detected Number: " + str(len(faces)))  # 검출된 안면 개수 터미널 출력
+
+        # [6. 검출된 안면 영역 가공 및 관심 영역(ROI) 설정]
+        if len(faces):  # 화면 내에 얼굴이 1개 이상 존재할 경우
+            for (x, y, w, h) in faces:
+                # 원본 컬러 영상에 안면 영역을 표시하는 파란색(BGR: 255, 0, 0) 사각형 드로잉
+                cv2.rectangle(image, (x, y), (x+w, y+h), (255, 0, 0), 2)
+                
+                # 불필요한 배경을 제외하고 안면 내부에서만 눈을 찾기 위한 관심 영역(ROI: Region of Interest) 추출
+                face_gray = gray[y:y+h, x:x+w]      # 눈 검출 연산용 흑백 안면 슬라이싱
+                face_color = image[y:y+h, x:x+w]    # 결과 사각형 드로잉용 컬러 안면 슬라이싱
+                
+                # [7. 안면 ROI 내부에서 안구 이차 검출]
+                eyes = eye_cascade.detectMultiScale(
+                    face_gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5
+                )
+                
+                # [8. 졸음 판별 조건문 및 하드웨어 연동 피드백]
+                # 눈이 감기거나 시선이 이탈하여 검출된 눈의 개수가 1개 이하일 경우 (졸음 상태로 판단)
+                if len(eyes) <= 1:
+                    buzzerPin.on()   # 16번 핀에 연결된 물리 부저 작동 (경고음 발생)
+                else:
+                    buzzerPin.off()  # 눈이 2개 정상 검출되면 부저 즉시 소등
+
+                # 검출된 안구 위치를 순회하며 초록색(BGR: 0, 255, 0) 사각형 드로잉
+                for (ex, ey, ew, eh) in eyes:
+                    cv2.rectangle(face_color, (ex, ey), (ex+ew, ey+eh), (0, 255, 0), 2)
+        
+        # [9. 실시간 디스플레이 및 루프 제어]
+        cv2.imshow('result', image)  # 분석 결과(사각형이 그려진 이미지)를 GUI 창에 렌더링
+        
+        # 1ms 동안 키보드 입력을 대기하며, 'q' 키가 눌릴 경우 무한 루프 탈출
+        if cv2.waitKey(1) == ord('q'):
+            break
+
+    # [10. 자원 해제 및 사후 처리]
+    cv2.destroyAllWindows()  # 생성된 모든 OpenCV GUI 창을 파괴하여 메모리 반환
+    buzzerPin.off()          # 프로그램 종료 시 부저가 켜져 있다면 강제로 끄기
+
+if __name__ == '__main__':
+    main()  # 스크립트가 직접 실행될 경우 엔트리 포인트인 main 함수 호출
