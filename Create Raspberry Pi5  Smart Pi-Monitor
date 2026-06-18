@@ -1,0 +1,84 @@
+import psutil
+import time
+import telepot
+from telepot.loop import MessageLoop
+from gpiozero import LED
+from gtts import gTTS
+import pygame
+import os
+
+# 1. 설정
+led_green = LED(2); led_blue = LED(3); led_red = LED(4)
+TOKEN = '8703741193:AAFQk6poem3vKaekISurfSDXVSkig36MgOo'
+CHAT_ID = '8612245956'
+bot = telepot.Bot(TOKEN)
+pygame.mixer.init()
+
+# 음성 재생 함수
+def speak(text):
+    try:
+        tts = gTTS(text=text, lang='ko')
+        tts.save("status.mp3")
+        pygame.mixer.music.load("status.mp3")
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy(): time.sleep(0.5)
+    except Exception as e:
+        print(f"음성 재생 오류: {e}")
+
+# 시스템 정보 읽기
+def get_system_stats():
+    with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+        temp = int(f.read()) / 1000
+    cpu = psutil.cpu_percent(interval=1)
+    mem = psutil.virtual_memory().percent
+    return temp, cpu, mem
+
+# LED 제어
+def update_leds(temp):
+    led_green.off(); led_blue.off(); led_red.off()
+    if temp < 50: led_green.on()
+    elif temp < 70: led_blue.on()
+    else: led_red.on()
+
+# 텔레그램 명령어 핸들러
+def handle(msg):
+    chat_id = msg['chat']['id']
+    command = msg.get('text', '').strip()
+    
+    if command == '/stop':
+        bot.sendMessage(chat_id, "🛑 시스템을 안전하게 종료합니다.")
+        led_green.off(); led_blue.off(); led_red.off()
+        os._exit(0)
+    
+    elif command == '/status':
+        temp, cpu, mem = get_system_stats()
+        status_msg = f"📊 즉시 보고\n온도: {temp}°C\nCPU: {cpu}%\n메모리: {mem}%"
+        bot.sendMessage(chat_id, status_msg)
+        # 상태 브리핑 추가
+        speak(f"현재 시스템 상태를 보고합니다. CPU는 {cpu}퍼센트, 메모리는 {mem}퍼센트, 현재 온도는 {temp}도 입니다.")
+
+# 메인 실행
+MessageLoop(bot, handle).run_as_thread()
+print("시스템 통합 모니터링 가동 중...")
+count = 0
+
+try:
+    while True:
+        temp, cpu, mem = get_system_stats()
+        update_leds(temp)
+        
+        # 30초 주기 보고 (15 * 2초)
+        if count >= 15:
+            msg = f"📊 [시스템 리포트]\n온도: {temp}°C\nCPU: {cpu}%\n메모리: {mem}%"
+            bot.sendMessage(CHAT_ID, msg)
+            
+            if temp >= 70: speak(f"경고! 현재 온도가 {temp}도로 매우 높습니다.")
+            elif temp >= 50: speak(f"주의! 현재 온도는 {temp}도 입니다.")
+            else: speak(f"시스템 정상입니다. 현재 온도는 {temp}도 입니다.")
+            count = 0
+        
+        count += 1
+        time.sleep(2)
+except KeyboardInterrupt:
+    led_green.off(); led_blue.off(); led_red.off()
+    print("시스템 종료")
