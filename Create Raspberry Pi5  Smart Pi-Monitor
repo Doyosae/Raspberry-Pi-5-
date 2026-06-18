@@ -1,84 +1,91 @@
-import psutil
-import time
-import telepot
-from telepot.loop import MessageLoop
-from gpiozero import LED
-from gtts import gTTS
-import pygame
-import os
+import psutil            # 시스템 상태(CPU, 메모리 등) 모니터링 라이브러리
+import time              # 시간 지연 및 주기적 반복 제어
+import telepot           # 텔레그램 봇 API 연동
+from telepot.loop import MessageLoop # 메시지 수신을 위한 루프 함수
+from gpiozero import LED # 라즈베리 파이 GPIO 핀 제어
+from gtts import gTTS    # 텍스트를 음성(MP3)으로 변환
+import pygame            # 생성된 음성 파일 재생
+import os                # 시스템 종료 명령어 실행용
 
-# 1. 설정
+# 1. 설정 및 하드웨어 초기화
+# LED 핀 설정 (Green: 정상, Blue: 주의, Red: 위험)
 led_green = LED(2); led_blue = LED(3); led_red = LED(4)
-TOKEN = '8703741193:AAFQk6poem3vKaekISurfSDXVSkig36MgOo'
-CHAT_ID = '8612245956'
+# 텔레그램 봇 토큰 및 수신자 ID
+TOKEN = 'XXXXX:XXXXX'
+CHAT_ID = 'XXXXXXXXX'
 bot = telepot.Bot(TOKEN)
-pygame.mixer.init()
+pygame.mixer.init() # 음성 재생기 초기화
 
-# 음성 재생 함수
+# 2. 음성 알림 함수 (TTS)
 def speak(text):
     try:
-        tts = gTTS(text=text, lang='ko')
-        tts.save("status.mp3")
-        pygame.mixer.music.load("status.mp3")
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy(): time.sleep(0.5)
+        tts = gTTS(text=text, lang='ko')          # 텍스트를 한국어 음성으로 변환
+        tts.save("status.mp3")                    # 파일로 저장
+        pygame.mixer.music.load("status.mp3")     # 재생할 파일 로드
+        pygame.mixer.music.play()                 # 재생 시작
+        while pygame.mixer.music.get_busy():      # 재생이 끝날 때까지 대기(중복 실행 방지)
+            time.sleep(0.5)
     except Exception as e:
         print(f"음성 재생 오류: {e}")
 
-# 시스템 정보 읽기
+# 3. 시스템 정보 수집 함수
 def get_system_stats():
+    # 라즈베리 파이 내부 온도 센서값 읽기
     with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
         temp = int(f.read()) / 1000
-    cpu = psutil.cpu_percent(interval=1)
-    mem = psutil.virtual_memory().percent
+    cpu = psutil.cpu_percent(interval=1)          # CPU 사용량(1초 측정)
+    mem = psutil.virtual_memory().percent         # 메모리 사용량(%)
     return temp, cpu, mem
 
-# LED 제어
+# 4. 온도에 따른 LED 제어 함수
 def update_leds(temp):
     led_green.off(); led_blue.off(); led_red.off()
-    if temp < 50: led_green.on()
-    elif temp < 70: led_blue.on()
-    else: led_red.on()
+    if temp < 50: led_green.on()                  # 50도 미만: 안정
+    elif temp < 70: led_blue.on()                 # 50~70도: 주의
+    else: led_red.on()                            # 70도 이상: 위험
 
-# 텔레그램 명령어 핸들러
+# 5. 텔레그램 명령어 핸들러 (원격 제어)
 def handle(msg):
     chat_id = msg['chat']['id']
     command = msg.get('text', '').strip()
     
-    if command == '/stop':
+    if command == '/stop':                        # 원격 종료 명령
         bot.sendMessage(chat_id, "🛑 시스템을 안전하게 종료합니다.")
         led_green.off(); led_blue.off(); led_red.off()
-        os._exit(0)
+        os._exit(0)                               # 프로그램 강제 종료
     
-    elif command == '/status':
+    elif command == '/status':                    # 실시간 상태 확인 명령
         temp, cpu, mem = get_system_stats()
         status_msg = f"📊 즉시 보고\n온도: {temp}°C\nCPU: {cpu}%\n메모리: {mem}%"
         bot.sendMessage(chat_id, status_msg)
-        # 상태 브리핑 추가
+        # 텔레그램 요청 시 음성으로도 즉시 브리핑
         speak(f"현재 시스템 상태를 보고합니다. CPU는 {cpu}퍼센트, 메모리는 {mem}퍼센트, 현재 온도는 {temp}도 입니다.")
 
-# 메인 실행
+# 6. 메인 실행부
+# 백그라운드에서 텔레그램 메시지 실시간 수신 시작
 MessageLoop(bot, handle).run_as_thread()
 print("시스템 통합 모니터링 가동 중...")
 count = 0
 
 try:
     while True:
-        temp, cpu, mem = get_system_stats()
-        update_leds(temp)
+        temp, cpu, mem = get_system_stats()       # 시스템 상태 읽기
+        update_leds(temp)                         # 상태에 맞는 LED 점등
         
-        # 30초 주기 보고 (15 * 2초)
+        # 30초 주기 보고 (2초 간격 루프 * 15회)
         if count >= 15:
             msg = f"📊 [시스템 리포트]\n온도: {temp}°C\nCPU: {cpu}%\n메모리: {mem}%"
-            bot.sendMessage(CHAT_ID, msg)
+            bot.sendMessage(CHAT_ID, msg)         # 텔레그램 자동 전송
             
+            # 온도 수준에 따른 음성 경고 메시지 출력
             if temp >= 70: speak(f"경고! 현재 온도가 {temp}도로 매우 높습니다.")
             elif temp >= 50: speak(f"주의! 현재 온도는 {temp}도 입니다.")
             else: speak(f"시스템 정상입니다. 현재 온도는 {temp}도 입니다.")
-            count = 0
+            count = 0                             # 카운트 초기화
         
         count += 1
-        time.sleep(2)
+        time.sleep(2)                             # 2초마다 상태 업데이트
 except KeyboardInterrupt:
+    # 프로그램 종료 시 LED 모두 끄기
     led_green.off(); led_blue.off(); led_red.off()
     print("시스템 종료")
